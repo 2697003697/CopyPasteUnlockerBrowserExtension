@@ -45,27 +45,7 @@
 
 ## 🚀 安装方法
 
-### Chrome / Edge / 360 浏览器
-
-1. 下载插件文件夹 `browser-extension`
-
-2. 打开浏览器扩展管理页面
-
-3. 开启右上角的「开发者模式」
-
-4. 点击「加载已解压的扩展程序」
-
-5. 选择 `browser-extension` 文件夹
-
-6. 安装成功！插件图标将显示在工具栏
-
-### 快捷键自定义
-
-1. 打开 `chrome://extensions/shortcuts`
-2. 找到「解除复制粘贴限制」
-3. 自定义快捷键：
-   - **开关插件**： `Ctrl+M`
-   - **打开浮动输入框**： `Ctrl+Shift+M`
+[在releases中下载](https://github.com/2697003697/CopyPasteUnlockerBrowserExtension/releases)
 
 ## 📖 使用方法
 
