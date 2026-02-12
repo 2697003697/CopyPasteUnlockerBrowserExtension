@@ -5,7 +5,7 @@
 
     // ==================== 配置 ====================
     const CONFIG = {
-        VERSION: '8.0.0',
+        VERSION: '8.1.0',
         STORAGE_KEY: 'unlockSettings',
         DEBUG: false
     };
@@ -18,9 +18,6 @@
         inputEnabled: true,
         version: CONFIG.VERSION
     });
-
-    // 站点独立设置存储键
-    const SITE_SETTINGS_KEY = 'siteSettings';
 
     // ==================== 日志系统 ====================
     const Logger = {
@@ -135,87 +132,6 @@
         }
     };
 
-    // ==================== 站点独立设置管理 ====================
-    const SiteSettingsManager = {
-        // 获取当前站点的设置
-        async getSiteSettings(hostname) {
-            try {
-                const result = await chrome.storage.local.get(SITE_SETTINGS_KEY);
-                const allSiteSettings = result[SITE_SETTINGS_KEY] || {};
-                return allSiteSettings[hostname] || null;
-            } catch (error) {
-                Logger.error('Failed to get site settings:', error);
-                return null;
-            }
-        },
-
-        // 保存站点设置
-        async saveSiteSettings(hostname, settings) {
-            try {
-                const result = await chrome.storage.local.get(SITE_SETTINGS_KEY);
-                const allSiteSettings = result[SITE_SETTINGS_KEY] || {};
-
-                if (settings) {
-                    allSiteSettings[hostname] = {
-                        ...settings,
-                        updatedAt: Date.now()
-                    };
-                } else {
-                    delete allSiteSettings[hostname];
-                }
-
-                await chrome.storage.local.set({ [SITE_SETTINGS_KEY]: allSiteSettings });
-                Logger.log('Site settings saved for:', hostname);
-                return true;
-            } catch (error) {
-                Logger.error('Failed to save site settings:', error);
-                return false;
-            }
-        },
-
-        // 获取所有站点设置
-        async getAllSiteSettings() {
-            try {
-                const result = await chrome.storage.local.get(SITE_SETTINGS_KEY);
-                return result[SITE_SETTINGS_KEY] || {};
-            } catch (error) {
-                Logger.error('Failed to get all site settings:', error);
-                return {};
-            }
-        },
-
-        // 清除所有站点设置
-        async clearAllSiteSettings() {
-            try {
-                await chrome.storage.local.remove(SITE_SETTINGS_KEY);
-                Logger.info('All site settings cleared');
-                return true;
-            } catch (error) {
-                Logger.error('Failed to clear site settings:', error);
-                return false;
-            }
-        },
-
-        // 合并全局设置和站点设置
-        async getEffectiveSettings(hostname) {
-            const globalSettings = await Storage.getSettings();
-            const siteSettings = await this.getSiteSettings(hostname);
-
-            if (siteSettings) {
-                return {
-                    ...globalSettings,
-                    ...siteSettings,
-                    hasSiteSpecificSettings: true
-                };
-            }
-
-            return {
-                ...globalSettings,
-                hasSiteSpecificSettings: false
-            };
-        }
-    };
-
     // ==================== 消息处理 ====================
     const MessageHandler = {
         init() {
@@ -231,18 +147,6 @@
             switch (message.type) {
                 case 'getSettings':
                     this.handleGetSettings(sendResponse);
-                    break;
-
-                case 'getSiteSettings':
-                    this.handleGetSiteSettings(message.hostname, sendResponse);
-                    break;
-
-                case 'setSiteSettings':
-                    this.handleSetSiteSettings(message.hostname, message.settings, sendResponse);
-                    break;
-
-                case 'clearSiteSettings':
-                    this.handleClearSiteSettings(message.hostname, sendResponse);
                     break;
 
                 case 'setSettings':
@@ -270,47 +174,6 @@
                         success: false,
                         error: 'Unknown message type: ' + message.type
                     });
-            }
-        },
-
-        // 处理获取站点设置
-        async handleGetSiteSettings(hostname, sendResponse) {
-            try {
-                const settings = await SiteSettingsManager.getSiteSettings(hostname);
-                sendResponse({ success: true, settings });
-            } catch (error) {
-                Logger.error('Failed to get site settings:', error);
-                sendResponse({ success: false, error: error.message });
-            }
-        },
-
-        // 处理设置站点设置
-        async handleSetSiteSettings(hostname, settings, sendResponse) {
-            try {
-                const success = await SiteSettingsManager.saveSiteSettings(hostname, settings);
-                if (success) {
-                    sendResponse({ success: true });
-                } else {
-                    sendResponse({ success: false, error: 'Failed to save site settings' });
-                }
-            } catch (error) {
-                Logger.error('Failed to set site settings:', error);
-                sendResponse({ success: false, error: error.message });
-            }
-        },
-
-        // 处理清除站点设置
-        async handleClearSiteSettings(hostname, sendResponse) {
-            try {
-                const success = await SiteSettingsManager.saveSiteSettings(hostname, null);
-                if (success) {
-                    sendResponse({ success: true });
-                } else {
-                    sendResponse({ success: false, error: 'Failed to clear site settings' });
-                }
-            } catch (error) {
-                Logger.error('Failed to clear site settings:', error);
-                sendResponse({ success: false, error: error.message });
             }
         },
 
@@ -430,6 +293,135 @@
             } catch (error) {
                 Logger.error('Failed to show notification:', error);
             }
+        }
+    };
+
+    // ==================== 右键菜单管理 ====================
+    const ContextMenuHandler = {
+        init() {
+            chrome.contextMenus.removeAll(() => {
+                chrome.contextMenus.create({
+                    id: 'unlock-copy',
+                    title: '🔓 强制复制选中内容',
+                    contexts: ['selection']
+                });
+
+                chrome.contextMenus.create({
+                    id: 'unlock-paste',
+                    title: '🔓 强制粘贴',
+                    contexts: ['editable']
+                });
+
+                chrome.contextMenus.create({
+                    id: 'separator',
+                    type: 'separator',
+                    contexts: ['selection', 'editable']
+                });
+
+                chrome.contextMenus.create({
+                    id: 'toggle-plugin',
+                    title: '🔌 切换插件开关',
+                    contexts: ['all']
+                });
+            });
+
+            chrome.contextMenus.onClicked.addListener(
+                ErrorHandler.wrap(this.handleClick.bind(this), 'context menu click')
+            );
+        },
+
+        async handleClick(info, tab) {
+            switch (info.menuItemId) {
+                case 'unlock-copy':
+                    await this.handleCopy(info, tab);
+                    break;
+                case 'unlock-paste':
+                    await this.handlePaste(info, tab);
+                    break;
+                case 'toggle-plugin':
+                    await this.handleToggle(tab);
+                    break;
+            }
+        },
+
+        async handleCopy(info, tab) {
+            try {
+                const settings = await Storage.getSettings();
+                if (!settings.mainEnabled) {
+                    this.showNotification(tab.id, '请先启用插件', 'warning');
+                    return;
+                }
+
+                const text = info.selectionText;
+                if (text) {
+                    await chrome.scripting.executeScript({
+                        target: { tabId: tab.id },
+                        func: (textToCopy) => {
+                            navigator.clipboard.writeText(textToCopy).then(() => {
+                                if (typeof Toast !== 'undefined') {
+                                    Toast.show('复制成功', 'success');
+                                }
+                            });
+                        },
+                        args: [text]
+                    });
+                }
+            } catch (error) {
+                Logger.error('Failed to handle copy:', error);
+            }
+        },
+
+        async handlePaste(info, tab) {
+            try {
+                const settings = await Storage.getSettings();
+                if (!settings.mainEnabled) {
+                    this.showNotification(tab.id, '请先启用插件', 'warning');
+                    return;
+                }
+
+                await chrome.scripting.executeScript({
+                    target: { tabId: tab.id },
+                    func: () => {
+                        navigator.clipboard.readText().then(text => {
+                            const activeElement = document.activeElement;
+                            if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA' || activeElement.isContentEditable)) {
+                                const start = activeElement.selectionStart || 0;
+                                const end = activeElement.selectionEnd || 0;
+                                const value = activeElement.value || '';
+                                activeElement.value = value.substring(0, start) + text + value.substring(end);
+                                activeElement.selectionStart = activeElement.selectionEnd = start + text.length;
+                                activeElement.dispatchEvent(new InputEvent('input', { bubbles: true }));
+                                if (typeof Toast !== 'undefined') {
+                                    Toast.show('粘贴成功', 'success');
+                                }
+                            }
+                        });
+                    }
+                });
+            } catch (error) {
+                Logger.error('Failed to handle paste:', error);
+            }
+        },
+
+        async handleToggle(tab) {
+            try {
+                const settings = await Storage.getSettings();
+                settings.mainEnabled = !settings.mainEnabled;
+                await Storage.saveSettings(settings);
+                
+                const message = settings.mainEnabled ? '插件已启用' : '插件已禁用';
+                this.showNotification(tab.id, message, settings.mainEnabled ? 'success' : 'info');
+            } catch (error) {
+                Logger.error('Failed to toggle plugin:', error);
+            }
+        },
+
+        showNotification(tabId, message, type) {
+            chrome.tabs.sendMessage(tabId, {
+                type: 'showToast',
+                message: message,
+                toastType: type
+            }).catch(() => {});
         }
     };
 
@@ -564,6 +556,9 @@
 
                 // 初始化快捷键处理
                 CommandHandler.init();
+
+                // 初始化右键菜单
+                ContextMenuHandler.init();
 
                 // 初始化图标状态
                 await IconManager.init();

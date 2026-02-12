@@ -15,7 +15,7 @@
 
     // ==================== 配置和常量 ====================
     const CONFIG = {
-        VERSION: '8.0.0',
+        VERSION: '8.1.0',
         STORAGE_KEY: 'unlockSettings',
         DEBUG: false,
         MAX_RETRY_ATTEMPTS: 3,
@@ -161,6 +161,57 @@
         }
     };
 
+    // ==================== Toast 提示模块 ====================
+    const Toast = {
+        show(message, type = 'success', duration = 2000) {
+            const toast = document.createElement('div');
+            toast.className = 'unlock-toast';
+            
+            const colors = {
+                success: { bg: '#10b981', icon: '✓' },
+                error: { bg: '#ef4444', icon: '✕' },
+                info: { bg: '#3b82f6', icon: 'ℹ' },
+                warning: { bg: '#f59e0b', icon: '⚠' }
+            };
+            
+            const config = colors[type] || colors.success;
+            
+            Object.assign(toast.style, {
+                position: 'fixed',
+                top: '20px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                padding: '12px 20px',
+                backgroundColor: config.bg,
+                color: '#fff',
+                borderRadius: '8px',
+                fontSize: '14px',
+                fontWeight: '500',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                zIndex: '2147483647',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                opacity: '0',
+                transition: 'opacity 0.3s, transform 0.3s'
+            });
+            
+            toast.innerHTML = `<span style="font-size:16px;">${config.icon}</span><span>${message}</span>`;
+            
+            document.body.appendChild(toast);
+            
+            requestAnimationFrame(() => {
+                toast.style.opacity = '1';
+            });
+            
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, duration);
+        }
+    };
+
     // ==================== 状态管理 ====================
     const State = {
         settings: { ...DEFAULT_SETTINGS },
@@ -297,11 +348,18 @@
             switch (message.type) {
                 case 'settingsUpdated':
                 case 'settingsChanged':
+                    const oldEnabled = State.settings.mainEnabled;
                     State.updateSettings(message.settings);
                     if (message.settings.mainEnabled) {
                         App.enableFeatures();
+                        if (!oldEnabled) {
+                            Toast.show('插件已启用', 'success');
+                        }
                     } else {
                         App.disableFeatures();
+                        if (oldEnabled) {
+                            Toast.show('插件已禁用', 'info');
+                        }
                     }
                     sendResponse({ success: true });
                     break;
@@ -322,6 +380,11 @@
 
                 case 'ping':
                     sendResponse({ pong: true, version: CONFIG.VERSION });
+                    break;
+
+                case 'showToast':
+                    Toast.show(message.message, message.toastType || 'success');
+                    sendResponse({ success: true });
                     break;
 
                 default:
@@ -355,8 +418,11 @@
             juejin: /juejin\.cn/i,
             zhihu: /zhihu\.com/i,
             baidu: /baidu\.com/i,
+            baiduwenku: /wenku\.baidu\.com/i,
             docin: /docin\.com|doc88\.com/i,
-            educoder: /educoder\.net/i
+            educoder: /educoder\.net/i,
+            weixin: /mp\.weixin\.qq\.com/i,
+            cnki: /cnki\.net|cnki\.com\.cn|kns\.cnki\.net/i
         },
 
         detect() {
@@ -1068,14 +1134,18 @@
                             const selection = window.getSelection();
                             if (selection && selection.toString()) {
                                 navigator.clipboard.writeText(selection.toString())
-                                    .then(() => Logger.log('Content copied to clipboard!'))
+                                    .then(() => {
+                                        Logger.log('Content copied to clipboard!');
+                                        Toast.show('复制成功', 'success');
+                                    })
                                     .catch(err => {
-                                        // 降级方案
                                         document.execCommand('copy');
+                                        Toast.show('复制成功', 'success');
                                     });
                             }
                         } catch (err) {
                             Logger.error('Copy operation failed:', err);
+                            Toast.show('复制失败', 'error');
                         }
                     }
                 },
@@ -1087,6 +1157,20 @@
     // ==================== 浮动输入框模块 ====================
     const FloatingInput = {
         currentBox: null,
+        isPaused: false,
+        currentSpeed: 'normal',
+        speedSettings: {
+            slow: { delay: 100, label: '慢速' },
+            normal: { delay: 50, label: '正常' },
+            fast: { delay: 20, label: '快速' }
+        },
+        typingState: {
+            isTyping: false,
+            currentIndex: 0,
+            chars: [],
+            element: null,
+            timeoutId: null
+        },
 
         create: ErrorHandler.wrap(() => {
             if (!State.settings.mainEnabled || !State.settings.inputEnabled) return;
@@ -1140,6 +1224,36 @@
             `;
             textarea.placeholder = '在此粘贴内容，按 Enter 开始输入...\n按 Shift+Enter 换行';
 
+            // 速度选择器
+            const speedRow = document.createElement('div');
+            speedRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:12px;';
+
+            const speedLabel = document.createElement('span');
+            speedLabel.textContent = '输入速度:';
+            speedLabel.style.cssText = 'font-size:12px;color:#666;';
+
+            const speedSelect = document.createElement('select');
+            speedSelect.style.cssText = `
+                padding: 4px 8px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                font-size: 12px;
+                cursor: pointer;
+            `;
+            Object.entries(FloatingInput.speedSettings).forEach(([key, value]) => {
+                const option = document.createElement('option');
+                option.value = key;
+                option.textContent = value.label;
+                if (key === 'normal') option.selected = true;
+                speedSelect.appendChild(option);
+            });
+            speedSelect.onchange = (e) => {
+                FloatingInput.currentSpeed = e.target.value;
+            };
+
+            speedRow.appendChild(speedLabel);
+            speedRow.appendChild(speedSelect);
+
             // 按钮组
             const btnGroup = document.createElement('div');
             btnGroup.style.cssText = 'display:flex;gap:8px;margin-top:12px;';
@@ -1158,6 +1272,21 @@
                 font-weight: 500;
             `;
 
+            const pauseBtn = document.createElement('button');
+            pauseBtn.textContent = '暂停';
+            pauseBtn.style.cssText = `
+                flex: 1;
+                padding: 8px 16px;
+                background: #f59e0b;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 14px;
+                font-weight: 500;
+                display: none;
+            `;
+
             const pasteBtn = document.createElement('button');
             pasteBtn.textContent = '直接粘贴';
             pasteBtn.style.cssText = `
@@ -1172,25 +1301,83 @@
                 font-weight: 500;
             `;
 
-            const speedLabel = document.createElement('div');
-            speedLabel.style.cssText = 'margin-top:8px;font-size:12px;color:#666;';
-            speedLabel.textContent = '输入速度: 正常';
-
             btnGroup.appendChild(startBtn);
+            btnGroup.appendChild(pauseBtn);
             btnGroup.appendChild(pasteBtn);
+
+            // 进度条
+            const progressContainer = document.createElement('div');
+            progressContainer.style.cssText = 'margin-top:8px;display:none;';
+            
+            const progressBar = document.createElement('div');
+            progressBar.style.cssText = `
+                width: 100%;
+                height: 4px;
+                background: #e5e7eb;
+                border-radius: 2px;
+                overflow: hidden;
+            `;
+            
+            const progressFill = document.createElement('div');
+            progressFill.style.cssText = `
+                width: 0%;
+                height: 100%;
+                background: #4f46e5;
+                transition: width 0.1s;
+            `;
+            
+            progressBar.appendChild(progressFill);
+            progressContainer.appendChild(progressBar);
 
             box.appendChild(header);
             box.appendChild(textarea);
+            box.appendChild(speedRow);
             box.appendChild(btnGroup);
-            box.appendChild(speedLabel);
+            box.appendChild(progressContainer);
 
             // 事件处理
             const targetElement = State.targetElement || document.activeElement;
 
+            const updateUI = (isTyping) => {
+                if (isTyping) {
+                    startBtn.textContent = '停止';
+                    startBtn.style.background = '#ef4444';
+                    pauseBtn.style.display = 'block';
+                    pasteBtn.style.display = 'none';
+                    progressContainer.style.display = 'block';
+                    textarea.disabled = true;
+                    speedSelect.disabled = true;
+                } else {
+                    startBtn.textContent = '开始输入';
+                    startBtn.style.background = '#4f46e5';
+                    pauseBtn.style.display = 'none';
+                    pasteBtn.style.display = 'block';
+                    progressContainer.style.display = 'none';
+                    textarea.disabled = false;
+                    speedSelect.disabled = false;
+                    FloatingInput.isPaused = false;
+                    pauseBtn.textContent = '暂停';
+                }
+            };
+
             startBtn.onclick = () => {
-                const text = textarea.value;
-                if (text && targetElement) {
-                    FloatingInput.typeText(targetElement, text);
+                if (FloatingInput.typingState.isTyping) {
+                    FloatingInput.stopTyping();
+                    updateUI(false);
+                } else {
+                    const text = textarea.value;
+                    if (text && targetElement) {
+                        FloatingInput.typeText(targetElement, text, progressFill);
+                        updateUI(true);
+                    }
+                }
+            };
+
+            pauseBtn.onclick = () => {
+                FloatingInput.isPaused = !FloatingInput.isPaused;
+                pauseBtn.textContent = FloatingInput.isPaused ? '继续' : '暂停';
+                if (!FloatingInput.isPaused) {
+                    FloatingInput.continueTyping(progressFill);
                 }
             };
 
@@ -1231,41 +1418,77 @@
         }, 'FloatingInput.create'),
 
         destroy() {
+            FloatingInput.stopTyping();
             if (FloatingInput.currentBox && FloatingInput.currentBox.parentNode) {
                 FloatingInput.currentBox.parentNode.removeChild(FloatingInput.currentBox);
                 FloatingInput.currentBox = null;
             }
         },
 
-        typeText: ErrorHandler.wrap((element, text) => {
+        stopTyping() {
+            if (FloatingInput.typingState.timeoutId) {
+                clearTimeout(FloatingInput.typingState.timeoutId);
+            }
+            FloatingInput.typingState = {
+                isTyping: false,
+                currentIndex: 0,
+                chars: [],
+                element: null,
+                timeoutId: null
+            };
+        },
+
+        typeText: ErrorHandler.wrap((element, text, progressFill) => {
             if (!State.settings.mainEnabled || !State.settings.inputEnabled) return;
 
-            const chars = text.split('');
-            let index = 0;
-            const avgDelay = 50; // 平均延迟50ms
+            FloatingInput.typingState = {
+                isTyping: true,
+                currentIndex: 0,
+                chars: text.split(''),
+                element: element,
+                timeoutId: null,
+                progressFill: progressFill
+            };
 
-            function typeNext() {
-                if (index >= chars.length || !FloatingInput.currentBox) {
+            FloatingInput.continueTyping(progressFill);
+        }, 'FloatingInput.typeText'),
+
+        continueTyping: ErrorHandler.wrap((progressFill) => {
+            const state = FloatingInput.typingState;
+            if (!state.isTyping) return;
+
+            const typeNext = () => {
+                if (FloatingInput.isPaused) return;
+                
+                if (state.currentIndex >= state.chars.length || !FloatingInput.currentBox) {
+                    FloatingInput.stopTyping();
+                    Toast.show('输入完成', 'success');
                     FloatingInput.destroy();
                     return;
                 }
 
                 if (!State.settings.mainEnabled || !State.settings.inputEnabled) {
+                    FloatingInput.stopTyping();
                     FloatingInput.destroy();
                     return;
                 }
 
-                const char = chars[index];
-                FloatingInput.insertChar(element, char);
-                index++;
+                const char = state.chars[state.currentIndex];
+                FloatingInput.insertChar(state.element, char);
+                state.currentIndex++;
 
-                // 随机延迟，模拟真实打字
+                if (progressFill) {
+                    const progress = (state.currentIndex / state.chars.length) * 100;
+                    progressFill.style.width = `${progress}%`;
+                }
+
+                const avgDelay = FloatingInput.speedSettings[FloatingInput.currentSpeed].delay;
                 const randomDelay = avgDelay + (Math.random() - 0.5) * 30;
-                setTimeout(typeNext, Math.max(10, randomDelay));
-            }
+                state.timeoutId = setTimeout(typeNext, Math.max(10, randomDelay));
+            };
 
             typeNext();
-        }, 'FloatingInput.typeText'),
+        }, 'FloatingInput.continueTyping'),
 
         insertChar: ErrorHandler.wrap((element, char) => {
             if (!element) return;
@@ -1684,7 +1907,278 @@
             State.registerObserver(observer);
 
             Logger.info('Educoder handler initialized');
-        }, 'SiteHandlers.educoder')
+        }, 'SiteHandlers.educoder'),
+
+        // 百度文库处理
+        baiduwenku: ErrorHandler.wrap(() => {
+            if (!State.settings.mainEnabled) return;
+
+            const unlockBaiduWenku = () => {
+                // 1. 移除付费遮罩和登录弹窗
+                const maskSelectors = [
+                    '.pay-pop',
+                    '.payt-money',
+                    '.doc-vip',
+                    '.vip-privilege',
+                    '.try-end-fold-page',
+                    '.read-all',
+                    '.purchase-wrapper',
+                    '.layer-wrap',
+                    '.experience-card',
+                    '[class*="pay-"]',
+                    '[class*="vip-"]',
+                    '[class*="login-"]',
+                    '.reader-copy'
+                ];
+
+                maskSelectors.forEach(selector => {
+                    document.querySelectorAll(selector).forEach(el => {
+                        el.style.display = 'none';
+                        el.remove();
+                    });
+                });
+
+                // 2. 解锁文本选择
+                const contentSelectors = [
+                    '.reader-content',
+                    '.doc-reader',
+                    '.ie-fix',
+                    '.reader-wrap',
+                    '.content-wrapper'
+                ];
+
+                contentSelectors.forEach(selector => {
+                    document.querySelectorAll(selector).forEach(el => {
+                        el.style.userSelect = 'text';
+                        el.style.webkitUserSelect = 'text';
+                        el.style.pointerEvents = 'auto';
+                    });
+                });
+
+                // 3. 解锁全局选择
+                document.body.style.userSelect = 'text';
+                document.body.style.webkitUserSelect = 'text';
+
+                // 4. 移除事件限制
+                ['copy', 'cut', 'paste', 'contextmenu', 'selectstart', 'mousedown'].forEach(eventName => {
+                    document.addEventListener(eventName, (e) => {
+                        if (State.settings.mainEnabled) {
+                            e.stopImmediatePropagation();
+                        }
+                    }, true);
+                });
+            };
+
+            unlockBaiduWenku();
+
+            const observer = new MutationObserver(() => {
+                if (State.settings.mainEnabled) {
+                    unlockBaiduWenku();
+                }
+            });
+
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['style', 'class']
+            });
+
+            State.registerObserver(observer);
+            Logger.info('Baidu Wenku handler initialized');
+        }, 'SiteHandlers.baiduwenku'),
+
+        // 微信公众号处理
+        weixin: ErrorHandler.wrap(() => {
+            if (!State.settings.mainEnabled) return;
+
+            const unlockWeixin = () => {
+                // 1. 解锁文本选择
+                const contentSelectors = [
+                    '#js_content',
+                    '.rich_media_content',
+                    '.rich_media_area_primary'
+                ];
+
+                contentSelectors.forEach(selector => {
+                    document.querySelectorAll(selector).forEach(el => {
+                        el.style.userSelect = 'text';
+                        el.style.webkitUserSelect = 'text';
+                        el.style.pointerEvents = 'auto';
+                    });
+                });
+
+                // 2. 移除复制限制
+                ['copy', 'cut', 'contextmenu', 'selectstart'].forEach(eventName => {
+                    document.addEventListener(eventName, (e) => {
+                        if (State.settings.mainEnabled) {
+                            e.stopImmediatePropagation();
+                        }
+                    }, true);
+                });
+
+                // 3. 移除可能的遮罩
+                document.querySelectorAll('[class*="mask"], [class*="overlay"]').forEach(el => {
+                    if (el.style.position === 'fixed' || el.style.position === 'absolute') {
+                        el.style.display = 'none';
+                    }
+                });
+            };
+
+            unlockWeixin();
+
+            const observer = new MutationObserver(() => {
+                if (State.settings.mainEnabled) {
+                    unlockWeixin();
+                }
+            });
+
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+
+            State.registerObserver(observer);
+            Logger.info('Weixin handler initialized');
+        }, 'SiteHandlers.weixin'),
+
+        // 知网处理
+        cnki: ErrorHandler.wrap(() => {
+            if (!State.settings.mainEnabled) return;
+
+            const unlockCNKI = () => {
+                // 1. 解锁文本选择
+                const contentSelectors = [
+                    '.article-content',
+                    '.content',
+                    '#content',
+                    '.txt',
+                    '.article-text',
+                    '.brief',
+                    '.abstract'
+                ];
+
+                contentSelectors.forEach(selector => {
+                    document.querySelectorAll(selector).forEach(el => {
+                        el.style.userSelect = 'text';
+                        el.style.webkitUserSelect = 'text';
+                        el.style.pointerEvents = 'auto';
+                    });
+                });
+
+                // 2. 移除登录遮罩
+                const maskSelectors = [
+                    '.login-mask',
+                    '.vip-mask',
+                    '.pay-mask',
+                    '[class*="login"]',
+                    '[class*="vip"]',
+                    '.modal',
+                    '.popup'
+                ];
+
+                maskSelectors.forEach(selector => {
+                    document.querySelectorAll(selector).forEach(el => {
+                        el.style.display = 'none';
+                    });
+                });
+
+                // 3. 移除事件限制
+                ['copy', 'cut', 'paste', 'contextmenu', 'selectstart'].forEach(eventName => {
+                    document.addEventListener(eventName, (e) => {
+                        if (State.settings.mainEnabled) {
+                            e.stopImmediatePropagation();
+                        }
+                    }, true);
+                });
+
+                // 4. 全局解锁
+                document.body.style.userSelect = 'text';
+                document.body.style.webkitUserSelect = 'text';
+            };
+
+            unlockCNKI();
+
+            const observer = new MutationObserver(() => {
+                if (State.settings.mainEnabled) {
+                    unlockCNKI();
+                }
+            });
+
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true
+            });
+
+            State.registerObserver(observer);
+            Logger.info('CNKI handler initialized');
+        }, 'SiteHandlers.cnki'),
+
+        // 知乎专栏处理
+        zhihu: ErrorHandler.wrap(() => {
+            if (!State.settings.mainEnabled) return;
+
+            const unlockZhihu = () => {
+                // 1. 解锁文本选择
+                const contentSelectors = [
+                    '.Post-RichText',
+                    '.RichText',
+                    '.RichContent-inner',
+                    '.ArticleItem-content',
+                    '.Post-content'
+                ];
+
+                contentSelectors.forEach(selector => {
+                    document.querySelectorAll(selector).forEach(el => {
+                        el.style.userSelect = 'text';
+                        el.style.webkitUserSelect = 'text';
+                    });
+                });
+
+                // 2. 移除登录弹窗
+                const loginSelectors = [
+                    '.Modal-wrapper',
+                    '.signFlowModal',
+                    '.LoginModal',
+                    '[class*="Login"]',
+                    '[class*="login"]'
+                ];
+
+                loginSelectors.forEach(selector => {
+                    document.querySelectorAll(selector).forEach(el => {
+                        if (el.textContent.includes('登录') || el.textContent.includes('注册')) {
+                            el.style.display = 'none';
+                        }
+                    });
+                });
+
+                // 3. 移除复制限制
+                ['copy', 'cut', 'contextmenu', 'selectstart'].forEach(eventName => {
+                    document.addEventListener(eventName, (e) => {
+                        if (State.settings.mainEnabled) {
+                            e.stopImmediatePropagation();
+                        }
+                    }, true);
+                });
+            };
+
+            unlockZhihu();
+
+            const observer = new MutationObserver(() => {
+                if (State.settings.mainEnabled) {
+                    unlockZhihu();
+                }
+            });
+
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+
+            State.registerObserver(observer);
+            Logger.info('Zhihu handler initialized');
+        }, 'SiteHandlers.zhihu')
     };
 
     // ==================== 初始化 ====================
@@ -1745,6 +2239,14 @@
                 SiteHandlers.docin();
             } else if (PageDetector.is('educoder')) {
                 SiteHandlers.educoder();
+            } else if (PageDetector.is('baiduwenku')) {
+                SiteHandlers.baiduwenku();
+            } else if (PageDetector.is('weixin')) {
+                SiteHandlers.weixin();
+            } else if (PageDetector.is('cnki')) {
+                SiteHandlers.cnki();
+            } else if (PageDetector.is('zhihu')) {
+                SiteHandlers.zhihu();
             } else {
                 // 通用解锁
                 UnlockFeatures.removeSpecificEventListeners();
@@ -1854,6 +2356,7 @@
                 if (State.settings.mainEnabled && 
                     State.settings.inputEnabled && 
                     e.ctrlKey && 
+                    e.shiftKey &&
                     e.key.toLowerCase() === 'm') {
                     e.preventDefault();
                     e.stopPropagation();

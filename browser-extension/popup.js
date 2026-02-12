@@ -5,7 +5,7 @@
 
     // ==================== 配置 ====================
     const CONFIG = {
-        VERSION: '8.0.0',
+        VERSION: '8.1.0',
         STORAGE_KEY: 'unlockSettings',
         DEBUG: false
     };

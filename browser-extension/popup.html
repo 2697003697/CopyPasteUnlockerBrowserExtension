@@ -155,66 +155,12 @@
             box-shadow: 0 0 8px #4ade80;
         }
 
-        .site-settings-section {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            padding: 12px;
-            margin-top: 12px;
-        }
-
-        .site-settings-title {
-            font-size: 12px;
-            font-weight: 600;
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .site-hostname {
-            font-size: 11px;
-            opacity: 0.8;
-            margin-left: auto;
-            font-weight: normal;
-        }
-
-        .site-settings-toggle {
-            margin-bottom: 10px;
-        }
-
-        .site-toggle-label {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 12px;
-            cursor: pointer;
-        }
-
-        .site-toggle-label input[type="checkbox"] {
-            width: 16px;
-            height: 16px;
-            cursor: pointer;
-        }
-
-        .site-item {
-            padding: 8px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .site-item:last-child {
-            border-bottom: none;
-        }
-
-        .site-item .switch-label {
-            font-size: 12px;
-        }
-
     </style>
 </head>
 <body>
     <div class="header">
         <h1>🔓 解除复制粘贴限制</h1>
-        <div class="version">版本 8.0.0</div>
+        <div class="version">版本 8.1.0</div>
     </div>
     
     <div class="switch-container">
@@ -245,7 +191,7 @@
         <div class="switch-item">
             <div>
                 <div class="switch-label">模拟人工输入</div>
-                <div class="switch-description">使用 Ctrl+M 呼出输入框</div>
+                <div class="switch-description">使用 Ctrl+Shift+M 呼出输入框</div>
             </div>
             <div class="toggle-switch active" id="inputSwitch"></div>
         </div>
@@ -257,55 +203,16 @@
             <span>使用说明</span>
         </div>
         <div class="info-content">
-            • 按 <span class="shortcut">Ctrl+M</span> 呼出浮动输入框<br>
+            • 按 <span class="shortcut">Ctrl+M</span> 切换插件开关<br>
+            • 按 <span class="shortcut">Ctrl+Shift+M</span> 呼出浮动输入框<br>
             • 双击输入框也可呼出输入框<br>
-            • 支持学习通、PTA、CSDN、飞书等网站
+            • 支持学习通、PTA、CSDN、飞书、百度文库、知乎、微信公众号、知网等网站
         </div>
     </div>
     
     <div class="status-indicator">
         <div class="status-dot active" id="statusDot"></div>
         <span id="statusText">插件运行中</span>
-    </div>
-
-    <div class="site-settings-section" id="siteSettingsSection" style="display: none;">
-        <div class="site-settings-title">
-            <span>🌐</span>
-            <span>当前网站设置</span>
-            <span id="siteHostname" class="site-hostname"></span>
-        </div>
-        <div class="site-settings-toggle">
-            <label class="site-toggle-label">
-                <input type="checkbox" id="siteSpecificToggle">
-                <span>为此网站使用独立设置</span>
-            </label>
-        </div>
-        <div id="siteSpecificControls" style="display: none;">
-            <div class="switch-item site-item">
-                <div>
-                    <div class="switch-label">此网站总开关</div>
-                </div>
-                <div class="toggle-switch" id="siteMainSwitch"></div>
-            </div>
-            <div class="switch-item site-item">
-                <div>
-                    <div class="switch-label">此网站复制</div>
-                </div>
-                <div class="toggle-switch" id="siteCopySwitch"></div>
-            </div>
-            <div class="switch-item site-item">
-                <div>
-                    <div class="switch-label">此网站粘贴</div>
-                </div>
-                <div class="toggle-switch" id="sitePasteSwitch"></div>
-            </div>
-            <div class="switch-item site-item">
-                <div>
-                    <div class="switch-label">此网站输入</div>
-                </div>
-                <div class="toggle-switch" id="siteInputSwitch"></div>
-            </div>
-        </div>
     </div>
 
     <div class="footer">
