@@ -45,7 +45,7 @@
 
 ## 🚀 安装方法
 
-[在releases中下载](https://github.com/2697003697/CopyPasteUnlockerBrowserExtension/releases)
+可在[releases](https://github.com/2697003697/CopyPasteUnlockerBrowserExtension/releases)中下载
 
 ## 📖 使用方法
 
